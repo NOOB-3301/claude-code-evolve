@@ -1,0 +1,6 @@
+{
+  "name": "evolve",
+  "version": "0.1.0",
+  "description": "Agent memory that evolves: Jev gates each turn, Haiku writes versioned notes to SQLite, relevant notes are injected into later prompts. /evolve opens the dashboard.",
+  "types": "./types/index.d.ts"
+}
