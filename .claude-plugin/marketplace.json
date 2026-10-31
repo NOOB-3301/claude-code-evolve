@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-code-evolve",
+  "description": "Agent memory that evolves for Claude Code.",
+  "owner": {
+    "name": "NOOB-3301",
+    "url": "https://github.com/NOOB-3301"
+  },
+  "plugins": [
+    {
+      "name": "evolve",
+      "description": "Jev gates each turn, Haiku writes typed versioned notes to SQLite, relevant notes are injected into later prompts. /evolve opens the dashboard.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

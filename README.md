@@ -24,7 +24,11 @@ Everything is local except the two model calls, and the database is shared acros
 
 ## Install
 
-See [install.md](install.md) for step-by-step setup.
+```
+/plugin install evolve --marketplace NOOB-3301/claude-code-evolve
+```
+
+Needs Claude Code 2.1.275 or later. For a manual install from a local clone, see [install.md](install.md).
 
 ## Usage
 

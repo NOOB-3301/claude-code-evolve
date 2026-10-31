@@ -264,15 +264,15 @@ async function extract($: EngineInterface, rec: TurnRecord) {
   await laneGo($, 'out', 2, { nouls: jev.nouls, detail: `Haiku editing: ${picked.join(', ') || 'any type'}` })
   // Haiku sees the flagged docs, or every doc when Jev flagged none.
   const docs = all.filter(d => picked.length === 0 || picked.includes(d.name))
-  const p = haikuPrompt(text, picked, docs, all, cfg.maxLines)
+  const p = haikuPrompt(text, picked, docs, all, cfg.maxLines, cfg.maxTypes)
   const r = await $.model.complete({ model: cfg.haikuModel, system: p.system, prompt: p.prompt, maxTokens: 1500 })
   if (!r.isAnswered) throw new Error(`haiku: ${r.reason}`)
-  const ex = parseHaiku(r.text)
+  const ex = parseHaiku(r.text, { existing: all.map(a => a.name), maxTypes: cfg.maxTypes })
   if (ex === undefined) throw new Error(`haiku: unparseable reply: ${r.text.slice(0, 120)}`)
+  for (const d of ex.dropped) await log($, 'skip', `new type "${d.name}" dropped: ${d.reason}`)
 
   await laneGo($, 'out', 3, { detail: 'writing new versions' })
   for (const nt of ex.newTypes) {
-    if (all.some(a => a.name === nt.name)) continue
     await addType(run, nt)
     await log($, 'type', `new type: ${nt.name}`)
     $.ui.toast(`evolve: new note type "${nt.name}"`)

@@ -29,6 +29,28 @@ describe('parsing', () => {
     const ex = parseHaiku('{"new_types":[{"name":"deploy","description":"d"},{"name":"infra","description":"i"}],"edits":{"deploy":{"add":["- fly.io"],"remove":[]}}}')
     expect(ex?.newTypes.map(t => t.name)).toEqual(['deploy'])
   })
+  test('parseHaiku caps new types per turn and reports the rest', () => {
+    const ex = parseHaiku(
+      '{"new_types":[{"name":"deploy","description":"d"},{"name":"testing","description":"t"}],"edits":{"deploy":{"add":["- fly.io"],"remove":[]},"testing":{"add":["- uses vitest"],"remove":[]}}}',
+      { existing: ['preference'], maxTypes: 8 },
+    )
+    expect(ex?.newTypes.map(t => t.name)).toEqual(['deploy'])
+    expect(ex?.dropped).toEqual([{ name: 'testing', reason: 'type cap reached' }])
+  })
+  test('parseHaiku drops a new type that already exists or would exceed maxTypes', () => {
+    const dup = parseHaiku(
+      '{"new_types":[{"name":"preference","description":"d"}],"edits":{"preference":{"add":["- x"],"remove":[]}}}',
+      { existing: ['preference'], maxTypes: 8 },
+    )
+    expect(dup?.newTypes).toEqual([])
+    expect(dup?.dropped).toEqual([{ name: 'preference', reason: 'already exists' }])
+    const full = parseHaiku(
+      '{"new_types":[{"name":"deploy","description":"d"}],"edits":{"deploy":{"add":["- fly.io"],"remove":[]}}}',
+      { existing: ['a', 'b'], maxTypes: 2 },
+    )
+    expect(full?.newTypes).toEqual([])
+    expect(full?.dropped).toEqual([{ name: 'deploy', reason: 'type cap reached' }])
+  })
   test('parseHaiku rejects garbage', () => {
     expect(parseHaiku('no json here')).toBe(undefined)
   })

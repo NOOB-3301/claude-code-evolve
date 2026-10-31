@@ -13,6 +13,8 @@ export type Config = {
   worthThreshold: number
   typeThreshold: number
   maxLines: number
+  /** Hard cap on note types, so the user's ontology stays small. */
+  maxTypes: number
   maxInjectTokens: number
   maxTurnChars: number
   /** Empty: ~/.claude/evolve/evolve.db */
@@ -30,6 +32,7 @@ export const DEFAULT_CONFIG: Config = {
   worthThreshold: 0.5,
   typeThreshold: 0.5,
   maxLines: 30,
+  maxTypes: 8,
   maxInjectTokens: 1500,
   maxTurnChars: 12000,
   dbPath: '',
@@ -152,14 +155,19 @@ export function haikuPrompt(
   docs: readonly Doc[],
   allTypes: readonly TypeInfo[],
   maxLines: number,
+  maxTypes: number,
 ): { system: string; prompt: string } {
+  const slots = Math.max(0, Math.min(MAX_NEW_TYPES_PER_TURN, maxTypes - allTypes.length))
   const system = [
     'You maintain a coding agent\'s long-term memory: one short doc of bullet points per note type.',
     'Read the turn and update the docs with durable lessons only (corrections, preferences, error→fix, tool quirks, lasting project facts). Skip one-off task details.',
     'Rules:',
     '- Reply with JSON only, no prose, no code fence: {"new_types":[{"name":"snake_case","description":"..."}],"edits":{"<type>":{"add":["- point"],"remove":["- exact existing line"]}}}',
     '- Never write notes about this memory system, the <evolved-memory> block, or notes being stale; when the user corrects a preference, just update that preference.',
-    '- Reuse an existing type unless none fits; only then add one in new_types (and use it in edits).',
+    '- The note types are a fixed, small ontology. Put a lesson into an existing type whenever it reasonably fits, even if the fit is loose. The default is no new type.',
+    `- A new type is allowed only if (a) no existing type can hold the lesson, and (b) it is a broad, lasting category of the user's work (for example "deployment" or "testing"), not a topic, a single tool or a single fact. Do not create a type for one lesson; the lesson goes into the closest existing type.`,
+    `- You may add at most ${slots} new type${slots === 1 ? '' : 's'} in this reply${slots === 0 ? ', so put every lesson into an existing type' : ''}.`,
+    '- Type names: lowercase snake_case noun, one or two words. Never reuse a name that already exists.',
     '- Each point is one line starting with "- ", short and specific, written so it helps a future session.',
     '- To change a point: remove the old line (copied EXACTLY) and add the new one. Never repeat an existing point.',
     `- A doc holds at most ${maxLines} lines; near the limit, merge or remove stale points.`,
@@ -183,13 +191,18 @@ export function haikuPrompt(
 }
 
 export type Edits = Record<string, { add: string[]; remove: string[] }>
-export type Extraction = { newTypes: TypeInfo[]; edits: Edits }
+export type Extraction = { newTypes: TypeInfo[]; edits: Edits; dropped: { name: string; reason: string }[] }
 
 const TYPE_NAME = /^[a-z][a-z0-9_]{1,39}$/
 const strs = (v: unknown) =>
   Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim() !== '').map(x => x.trim()) : []
 
-export function parseHaiku(text: string): Extraction | undefined {
+/** Most new types one turn may add; growth stays slow and reviewable. */
+export const MAX_NEW_TYPES_PER_TURN = 1
+
+export type TypeLimits = { existing: readonly string[]; maxTypes: number }
+
+export function parseHaiku(text: string, limits?: TypeLimits): Extraction | undefined {
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
   if (start < 0 || end <= start) return undefined
@@ -216,8 +229,18 @@ export function parseHaiku(text: string): Extraction | undefined {
       const remove = strs(e?.remove)
       if (TYPE_NAME.test(name) && (add.length > 0 || remove.length > 0)) edits[name] = { add, remove }
     }
-  // A new type only counts if Haiku also writes notes into it; otherwise it would sit empty.
-  return { newTypes: newTypes.filter(t => (edits[t.name]?.add.length ?? 0) > 0), edits }
+  // Keep a new type only if it has notes, is not a duplicate, and fits the caps. Everything else is reported.
+  const existing = new Set((limits?.existing ?? []).map(n => n.toLowerCase()))
+  const room = limits ? Math.min(MAX_NEW_TYPES_PER_TURN, Math.max(0, limits.maxTypes - existing.size)) : Infinity
+  const newTypesKept: TypeInfo[] = []
+  const dropped: { name: string; reason: string }[] = []
+  for (const t of newTypes) {
+    if (existing.has(t.name)) dropped.push({ name: t.name, reason: 'already exists' })
+    else if ((edits[t.name]?.add.length ?? 0) === 0) dropped.push({ name: t.name, reason: 'no notes written into it' })
+    else if (newTypesKept.length >= room) dropped.push({ name: t.name, reason: 'type cap reached' })
+    else newTypesKept.push(t)
+  }
+  return { newTypes: newTypesKept, edits, dropped }
 }
 
 /** Applies explicit removes (exact line match) then adds; keeps the newest `cap` lines. */
